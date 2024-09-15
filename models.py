@@ -10,7 +10,10 @@ class BiagramLanguageModel(nn.Module):
         # each toekn will directly take logits for the next token from lookup table
         self.token_embedding_table = nn.Embedding(vocab_size , config.n_emb)  
         self.pos_embedding_table = nn.Embedding(config.block_size , config.n_emb)
-        self.sa_head = Head(config.n_emb)
+        # self.sa_head = MultiHeadAttention(config.num_heads , int(config.n_emb / config.num_heads))
+        # self.feedforward = FeedForward(config.n_emb)
+        self.blocks = nn.Sequential(*[Block() for _ in range(config.num_blocks)])
+        self.ln1 = nn.LayerNorm(config.n_emb)   # final layer norm
         self.lm_head = nn.Linear(config.n_emb , vocab_size)
 
     def forward(self , idx , targets = None):
@@ -19,7 +22,9 @@ class BiagramLanguageModel(nn.Module):
         token_emb = self.token_embedding_table(idx)  # B , T , n_emb
         pos_emb = self.pos_embedding_table(torch.arange(T , device = config.device)) # T , n_emb
         x = token_emb + pos_emb # (B , T , n_emb)
-        x = self.sa_head(x) # applies one head of self attention # (B , T , head_size)
+        # x = self.sa_head(x) # applies one head of self attention # (B , T , head_size)
+        # x = self.feedforward(x)
+        x = self.blocks(x)
         logits = self.lm_head(x) # (B , T , vocab_size)
 
         if targets is None:
@@ -53,8 +58,9 @@ class BiagramLanguageModel(nn.Module):
 class Head(nn.Module):
     """one head of self attention"""
 
-    def __init__(self , head_size):
+    def __init__(self):
         super().__init__()
+        head_size = config.n_emb // config.num_heads
         self.key = nn.Linear(config.n_emb , head_size , bias  = False)
         self.query = nn.Linear(config.n_emb , head_size , bias  = False)
         self.value = nn.Linear(config.n_emb , head_size , bias  = False)
@@ -71,3 +77,55 @@ class Head(nn.Module):
         v = self.value(x)    # (B , T , head_size)
         out = wei @ v # (B , T , T) @ (B , T , head_size) = (B , T , head_size)
         return out
+
+
+class MultiHeadAttention(nn.Module):
+    """multiple heads of self attention running in parallel"""
+    def __init__(self , num_heads ):
+        super().__init__()
+        head_size = config.n_emb // num_heads
+        self.heads = nn.ModuleList([Head() for _ in range(num_heads)])
+        self.proj = nn.Linear(config.n_emb , config.n_emb)
+        self.dropout = nn.Dropout(config.dropout)
+
+    def forward(self , x):
+        x = torch.cat([h(x) for h in self.heads] , dim = -1)   # (B , T , num_heads*head_size)  == (B , T , n_emb)
+        x = self.proj(x)     # (B , T , n_emb)
+        x = self.dropout(x)   # (B , T , n_emb)
+        return x              # (B , T , n_emb)
+
+
+class FeedForward(nn.Module):
+    """multi-layer preceptron layer"""
+    def __init__(self , n_emb):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(n_emb, 4 * n_emb),
+            nn.ReLU(),
+            nn.Linear(4 * n_emb, n_emb),
+            nn.Dropout(config.dropout),
+        )
+
+    def forward(self , x):
+        return self.net(x)
+
+
+
+
+class Block(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.multi_head_attention = MultiHeadAttention(config.num_heads)
+        self.feedforward = FeedForward(config.n_emb)
+        self.ln1 = nn.LayerNorm(config.n_emb)
+        self.ln2 = nn.LayerNorm(config.n_emb)
+
+    def forward(self , x):
+        x = x + self.multi_head_attention(self.ln1(x))
+        x = x + self.feedforward(self.ln2(x))
+        return x
+        
+
+
+
+    

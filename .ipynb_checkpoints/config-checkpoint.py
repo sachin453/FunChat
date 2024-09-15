@@ -1,9 +1,12 @@
 import torch
-batch_size = 64 # how many sequences will be processed in parallel
-n_emb = 64  # number of embeddings
+batch_size = 512 # how many sequences will be processed in parallel
+n_emb = 128  # number of embeddings
+num_heads = 8 # number of self attention heads
 inf = 1e9
-block_size = 16 # max context length to make predictions
+block_size = 64 # max context length to make predictions
 # head_size = 32
+dropout = 0.10
+num_blocks = 4
 
 
 
