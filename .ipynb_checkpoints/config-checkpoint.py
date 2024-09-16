@@ -1,5 +1,5 @@
 import torch
-batch_size = 512 # how many sequences will be processed in parallel
+batch_size = 64 # how many sequences will be processed in parallel
 n_emb = 128  # number of embeddings
 num_heads = 8 # number of self attention heads
 inf = 1e9
